@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FairClear pilot</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--ink:#1d1d1f;--sub:#6e6e73;--line:#d2d2d7;--accent:#0071e3;--accent-ink:#fff;--soft:#e8f1fc;--warn:#b25000;--ok:#1a7f37}
+@media (prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--ink:#f5f5f7;--sub:#a1a1a6;--line:#38383a;--accent:#0a84ff;--soft:#0a2540;--warn:#ff9f0a;--ok:#30d158}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.45 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.wrap{max-width:480px;margin:0 auto;padding:12px 16px calc(28px + env(safe-area-inset-bottom))}
+.bar{position:sticky;top:0;z-index:2;background:var(--bg);padding:10px 0 12px}
+.track{height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.fill{height:100%;background:var(--accent);width:0;transition:width .25s}
+.meta{display:flex;justify-content:space-between;font-size:13px;color:var(--sub);margin-top:6px}
+h1{font-size:28px;line-height:1.15;font-weight:700;letter-spacing:-.02em;margin:18px 0 10px}
+h2{font-size:21px;line-height:1.25;font-weight:600;letter-spacing:-.01em;margin:14px 0 16px}
+p{margin:0 0 12px}.sub{color:var(--sub);font-size:15px}
+.panel{background:var(--card);border-radius:16px;padding:16px;margin:0 0 12px}
+.btn{display:block;width:100%;min-height:50px;border:0;border-radius:12px;font:600 17px Inter,-apple-system,sans-serif;background:var(--accent);color:var(--accent-ink);cursor:pointer;margin:0 0 10px;padding:12px}
+.btn.sec{background:var(--card);color:var(--accent);border:1px solid var(--line)}
+.btn.ghost{background:none;color:var(--accent);min-height:40px;font-weight:500;font-size:15px}
+.btn:disabled{opacity:.4}
+.btn.sec.sel{background:var(--soft);border-color:var(--accent)}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}.row3 .btn{font-size:15px;font-weight:500;padding:10px 4px}
+input[type=text],input[type=number],textarea{width:100%;font:16px Inter,-apple-system,sans-serif;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:0 0 12px}
+textarea{min-height:120px;resize:vertical}
+.code{font-size:22px;letter-spacing:.08em;text-transform:uppercase;text-align:center}
+pre{white-space:pre-wrap;word-break:break-word;font:12px/1.45 ui-monospace,Menlo,monospace;max-height:220px;overflow:auto;margin:0;color:var(--ink)}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 12px}
+.opt{background:var(--card);border:2px solid var(--line);border-radius:16px;padding:14px 12px;text-align:left;font:inherit;color:inherit;cursor:pointer;display:flex;flex-direction:column;gap:8px;min-height:170px}
+.opt:active,.opt.sel{border-color:var(--accent);background:var(--soft)}
+.opt .tag{font-size:13px;font-weight:600;color:var(--sub)}
+.opt .k{font-size:13px;color:var(--sub)}.opt .v{font-size:17px;font-weight:600;margin-top:-6px}
+.opt .price{margin-top:auto;font-size:15px;font-weight:600}.opt .extra{color:var(--warn);font-size:14px;font-weight:600}
+.scale{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:0 0 12px}.scale .btn{margin:0;padding:8px 0;font-size:20px}
+.ends{display:flex;justify-content:space-between;font-size:13px;color:var(--sub);margin:-4px 0 14px}
+input[type=range]{width:100%;margin:18px 0 10px;accent-color:var(--accent);height:32px}
+.status{text-align:center;font-weight:600;color:var(--sub);margin:4px 0 6px}
+.found{list-style:none;padding:0;margin:0}.found li{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line);font-size:15px}.found li:last-child{border:0}
+.yes{color:var(--ok);font-weight:600}.no{color:var(--sub)}
+.err{color:var(--warn);font-size:14px;min-height:1em}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="bar" id="bar"><div class="track"><div class="fill" id="fill"></div></div><div class="meta"><span id="sect">FairClear</span><span id="count"></span></div></div>
+  <main id="app"><p class="sub">Loading…</p></main>
+</div>
+<script>
+(function(){
+"use strict";
+var KEY = "fairclear-remote-v1", BUILD_ID = "e8ff802a6a9c"; // remote/build.py stamps BUILD_ID (hash of cards + consent + key id)
+var SKEY = BUILD_ID ? KEY + ":" + BUILD_ID : KEY; // so a rebuilt page never resumes a session saved by an older build (that one is ignored, not loaded)
+var SECTIONS = ["categories","stated_priorities","deal_breakers","brands","budget_bands","past_decisions"];
+var COLS = ["participant_code","card_id","answer","seconds","repeat_flag","swapped","order","prefill_shown","free_text","data_label","arm","arm_order","attribute","stated_conf"];
+var ARM_CAP = 15; // max claims per arm sent to the confirmation screen
+var SECT_NAMES = {categories:"What you buy",stated_priorities:"What matters to you",deal_breakers:"Deal-breakers",brands:"Brands",budget_bands:"Budgets",past_decisions:"Past choices"};
+var D = null, PROMPT = "", PROMPT4 = [], ITEMS = {}, S = null;
+var app = document.getElementById("app");
+
+function load(){ try { var s = JSON.parse(localStorage.getItem(SKEY)); return s && typeof s === "object" ? s : null; } catch(e){ return null; } }
+function save(){ try { localStorage.setItem(SKEY, JSON.stringify(S)); } catch(e){} }
+function clearState(){ try { localStorage.removeItem(SKEY); } catch(e){} S = null; }
+function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
+
+// Assignment rules from cards.json "assignment"
+function assign(code){
+  var n = parseInt(code.replace(/\D/g,""), 10);
+  return { n:n, swapped: n % 2 === 0 ? 1 : 0, order: (Math.floor((n-1)/2) % 2 === 0) ? "order_1" : "order_2", group: n % 2 ? "A" : "B" };
+}
+
+function xcSteps(){
+  var x = S.xc, out = ["xc:intro"];
+  if (x.none) return out;
+  x.order.split("").forEach(function(arm){
+    if (arm === "A") out.push("xc:A");
+    else for (var t = 0; t < x.bTurns; t++) out.push("xc:B:" + t);
+  });
+  out.push("xc:cintro");
+  (x.pool || []).forEach(function(c, i){ out.push("xc:c:" + i); });
+  out.push("xc:carry");
+  return out;
+}
+function steps(){
+  var out = xcSteps(), seen = {};
+  D.orders[S.order].forEach(function(id){
+    var it = ITEMS[id], k = it.qtype === "ab_card" ? it.category : (it.qtype === "slider" ? "sliders" : "haggle");
+    if (!seen[k]) { seen[k] = 1; out.push("intro:" + k); }
+    out.push(id);
+  });
+  out.push("done");
+  return out;
+}
+var INTRO = {
+  laptops: ["Laptops", "Imagine you're buying a laptop. Each card shows two. Tap the one you'd rather have. If you really don't mind, say so. They're examples, not real offers. There are no right answers; go with your gut."],
+  groceries: ["Groceries", "Same idea, but for your usual weekly grocery order."],
+  sliders: ["About you", "Some statements about how you shop. Slide from Never to Always. Some show our guess already: move it if it's wrong, or leave it if it's right. Some say No data: put it wherever fits."],
+  haggle: ["Haggling and agents", "Two quick questions each for laptops and groceries."]
+};
+function sectName(id){
+  if (id.indexOf("xc:") === 0) return id.indexOf("xc:c") === 0 || id === "xc:carry" ? "About you" : "Your assistant";
+  if (id === "done") return "Done";
+  if (id.indexOf("intro:") === 0) return INTRO[id.slice(6)][0];
+  var it = ITEMS[id];
+  return it.qtype === "ab_card" ? INTRO[it.category][0] : it.qtype === "slider" ? "About you" : "Haggling and agents";
+}
+
+function progress(st){
+  var all = steps(), total = all.length - 1, done = Math.min(S.i, total);
+  document.getElementById("fill").style.width = Math.round(100 * done / total) + "%";
+  document.getElementById("count").textContent = done + " of " + total;
+  document.getElementById("sect").textContent = sectName(st);
+}
+
+function startTimer(id){ if (!S.shown[id]) { S.shown[id] = Date.now(); save(); } }
+function secs(id){ return Math.max(0, (Date.now() - S.shown[id]) / 1000); }
+// Every advance names the step it belongs to, so a double tap (or a tap during the 120 ms highlight) cannot skip the next screen.
+function here(id){ return steps()[S.i] === id; }
+function answer(id, ans, extra){
+  if (!here(id)) return;
+  var a = { answer: ans, seconds: Math.round(secs(id) * 10) / 10 };
+  if (extra) for (var k in extra) a[k] = extra[k];
+  var sub = ans === "depends" || ans.indexOf("under:") === 0;   // time to the first tap on "It depends" / "Only under"
+  if (sub && S.pending && S.pending.id === id && S.pending.seconds != null) a.seconds = S.pending.seconds;
+  S.pending = null;
+  S.answers[id] = a; S.i++; save(); render();
+}
+function next(from){ if (from && !here(from)) return; S.i++; save(); render(); }
+
+function render(){
+  window.scrollTo(0,0);
+  if (!S) return renderWelcome();
+  var st = steps()[S.i] || "done";
+  progress(st);
+  try { history.replaceState({i:S.i}, ""); } catch(e){}
+  if (st.indexOf("xc:") === 0) return renderXC(st);
+  if (st === "done") return renderDone();
+  if (st.indexOf("intro:") === 0) return renderIntro(st.slice(6));
+  var it = ITEMS[st];
+  startTimer(st);
+  if (it.qtype === "ab_card") return renderCard(it);
+  if (it.qtype === "slider") return renderSlider(it);
+  if (it.qtype === "haggle_enjoy") return renderHaggle(it);
+  return renderDelegate(it);
+}
+
+function on(sel, fn){ Array.prototype.forEach.call(app.querySelectorAll(sel), function(el){ el.addEventListener("click", fn); }); }
+
+function renderWelcome(){
+  document.getElementById("fill").style.width = "0";
+  document.getElementById("count").textContent = "";
+  document.getElementById("sect").textContent = "FairClear";
+  app.innerHTML = '<h1>Thanks for helping</h1>' +
+    '<p>FairClear works out what you care about when you shop, so an AI agent could buy things the way you would. This takes 15 to 20 minutes.</p>' +
+    '<div class="panel sub">This page runs only in your browser: it doesn\'t send or upload anything. Your progress is kept in this browser so you can pick up where you left off. At the end you get a scrambled result code that only Max can read, and you send it to him yourself. Your name isn\'t in it, only your code. Max keeps the answers, including any notes you type and how long each one took, in his private files (his laptop and Google Drive) for his MIT class project; results are only shared as totals or anonymous quotes, never with your name. Ask Max any time and he\'ll delete your answers.</div>' +
+    '<label class="sub" for="code">Your code from Max</label><input id="code" class="code" type="text" placeholder="P01" autocomplete="off" autocapitalize="characters" spellcheck="false">' +
+    '<div class="err" id="err"></div><button class="btn" id="go">Start</button>' +
+    '<button class="btn ghost" id="exportonly">Only sending an AI export? Tap here</button>';
+  var go = function(){
+    var c = document.getElementById("code").value.trim().toUpperCase();
+    if (!/^P\d{2,3}$/.test(c) || parseInt(c.slice(1),10) < 1) { document.getElementById("err").textContent = "Codes look like P01, P02 …"; return; }
+    var a = assign(c);
+    S = { code:c, swapped:a.swapped, order:a.order, group:a.group, i:0, answers:{}, shown:{}, exp:null, pending:null, sent:false, started:new Date().toISOString(),
+          xc:{ order: a.n % 2 ? "AB" : "BA", none:false, bTurns:PROMPT4.length || 1, replies:{}, claims:{A:[], B:[]}, pool:null, labels:{}, carry:null } };
+    save(); render();
+  };
+  on("#go", go); on("#exportonly", function(){ renderExportOnly(); });
+  document.getElementById("code").addEventListener("keydown", function(e){ if (e.key === "Enter") go(); });
+}
+
+function renderIntro(k){
+  app.innerHTML = '<h1>' + esc(INTRO[k][0]) + '</h1><p>' + esc(INTRO[k][1]) + '</p><button class="btn" data-go>Continue</button>';
+  on("[data-go]", function(){ next("intro:" + k); });
+}
+
+function copyText(t, btn){
+  var done = function(){ var o = btn.textContent; btn.textContent = "Copied"; setTimeout(function(){ btn.textContent = o; }, 1500); };
+  try { navigator.clipboard.writeText(t).then(done, fallback); } catch(e){ fallback(); }
+  function fallback(){ var ta = document.createElement("textarea"); ta.value = t; document.body.appendChild(ta); ta.select(); try { document.execCommand("copy"); done(); } catch(e){} ta.remove(); }
+}
+
+function parseExport(txt){
+  var a = txt.indexOf("{"), b = txt.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  try { var j = JSON.parse(txt.slice(a, b+1)); } catch(e){ return null; }
+  if (!j || typeof j !== "object") return null;
+  var r = {};
+  SECTIONS.forEach(function(s){ r[s] = (Array.isArray(j[s]) && j[s].length > 0) ? "filled" : "unknown"; });
+  return r;
+}
+
+// ---- Experiment C (pilot/experiment_c.md): arm A = v0.3 one prompt, arm B = v0.4 opener + up to 3 follow-ups.
+// Order by code parity: odd codes A first, even codes B first. Each arm in a NEW chat.
+function jsonOf(txt){
+  var a = txt.indexOf("{"), b = txt.lastIndexOf("}");
+  if (a < 0 || b <= a) return null;
+  try { var j = JSON.parse(txt.slice(a, b+1)); } catch(e){ return null; }
+  return (j && typeof j === "object") ? j : null;
+}
+function str(v, n){ return typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, n || 200) : ""; }
+function known(v){ var t = str(v).toLowerCase(); return t && t !== "unknown" && t !== "none" && t !== "n/a"; }
+var CONF3 = {high:0.85, medium:0.6, low:0.35};
+function claimsA(j){
+  var out = [], cat = function(c){ return known(c) && str(c).toLowerCase() !== "all" ? "for " + str(c, 60) : "in general"; };
+  var add = function(sec, text, conf, cite){ if (text) out.push({ text:text, attr:sec, conf: CONF3[str(conf).toLowerCase()] != null ? CONF3[str(conf).toLowerCase()] : "", cite: cite || "" }); };
+  (Array.isArray(j.categories) ? j.categories : []).forEach(function(x){ if (x && known(x.name)) add("categories", "You regularly spend on " + str(x.name, 60) + (known(x.share_of_spend) ? " (" + str(x.share_of_spend, 40) + " of your spending)." : "."), x.confidence); });
+  (Array.isArray(j.stated_priorities) ? j.stated_priorities : []).forEach(function(x){ if (x && known(x.priority)) add("stated_priorities", (cat(x.category) === "in general" ? "In general" : "When you buy " + cat(x.category).replace(/^for /, "")) + ", you prioritise: " + str(x.priority, 120) + ".", x.confidence); });
+  (Array.isArray(j.deal_breakers) ? j.deal_breakers : []).forEach(function(x){ if (x && known(x.rule)) add("deal_breakers", "A deal-breaker " + cat(x.category) + ": " + str(x.rule, 120) + ".", x.confidence); });
+  (Array.isArray(j.brands) ? j.brands : []).forEach(function(x){ if (x && known(x.brand)) add("brands", "You " + (str(x.stance) === "avoid" ? "avoid " : "prefer ") + str(x.brand, 60) + " " + cat(x.category) + ".", x.confidence); });
+  (Array.isArray(j.budget_bands) ? j.budget_bands : []).forEach(function(x){ if (x && (known(x.low) || known(x.high))) add("budget_bands", "You usually spend " + (known(x.low) ? str(x.low, 30) : "?") + " to " + (known(x.high) ? str(x.high, 30) : "?") + " " + cat(x.category) + ".", x.confidence); });
+  (Array.isArray(j.past_decisions) ? j.past_decisions : []).forEach(function(x){ if (x && known(x.chose)) add("past_decisions", "You once chose " + str(x.chose, 80) + (known(x.over) ? " over " + str(x.over, 80) : "") + " " + cat(x.category) + ".", x.confidence, str(x.chose, 80)); });
+  return out;
+}
+function claimsB(j){
+  return (Array.isArray(j.claims) ? j.claims : []).filter(function(c){ return c && str(c.statement); }).map(function(c){
+    var p = typeof c.p_agree === "number" && c.p_agree >= 0 && c.p_agree <= 1 ? c.p_agree : "";   // out of range = no usable confidence
+    var at = str(c.attribute, 40).toLowerCase().replace(/[^a-z0-9:_ -]/g, "");
+    var ev = (Array.isArray(c.evidence) ? c.evidence : []).filter(function(e){ return e && str(e.type).toLowerCase() === "purchase" && str(e.text); })[0];
+    return { text: str(c.statement, 240), attr: at, conf: p, cite: ev ? str(ev.text, 80) : "" };   // cite = a purchase it says happened
+  });
+}
+function rng(seed){ return function(){ seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }; }
+function buildPool(){
+  var x = S.xc, seen = {}, pool = [];
+  ["A","B"].forEach(function(arm){
+    x.claims[arm].slice(0, ARM_CAP).forEach(function(c){
+      var k = c.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      if (seen[k] != null) { var p = pool[seen[k]]; if (p.arm.indexOf(arm) < 0) p.arm += arm; if (!p.cite && c.cite) p.cite = c.cite; return; }
+      seen[k] = pool.length; pool.push({ text:c.text, arm:arm, attr:c.attr, conf:c.conf, cite:c.cite || "" });
+    });
+  });
+  var r = rng(parseInt(S.code.slice(1), 10) * 7919 + 17);
+  for (var i = pool.length - 1; i > 0; i--) { var k = Math.floor(r() * (i + 1)), t = pool[i]; pool[i] = pool[k]; pool[k] = t; }
+  x.pool = pool; save();
+}
+function armPrompt(st){ return st === "xc:A" ? PROMPT : (PROMPT4[parseInt(st.split(":")[2], 10)] || ""); }
+function renderXC(st){
+  var x = S.xc;
+  if (st === "xc:intro") {
+    app.innerHTML = '<h1>What does your assistant know?</h1>' +
+      '<p>If you use ChatGPT, Claude or Gemini, you\'ll paste two main prompts into it, each in a <b>new chat</b>, plus up to three short follow-ups, and copy back the replies. Then you\'ll mark which statements about you are true.</p>' +
+      '<div class="panel sub">Read every reply first and delete anything you\'d rather not share. The statements are shown to you, then deleted from this browser; they never reach Max. What is kept: your true / false / unsure marks, a short topic label for each statement (like "price"), how sure your assistant said it was, your yes / no on any purchase it mentions, and which sections of its replies were filled in.</div>' +
+      '<button class="btn" data-go>I use one, let\'s go</button><button class="btn ghost" id="none">I don\'t use an AI assistant</button>';
+    on("[data-go]", function(){ next(st); });
+    on("#none", function(){ if (!here(st)) return; x.none = true; S.exp = {}; SECTIONS.forEach(function(s){ S.exp[s] = "none"; }); next(st); });
+    return;
+  }
+  if (st === "xc:A" || st.indexOf("xc:B:") === 0) {
+    startTimer(st);
+    var isA = st === "xc:A", t = isA ? 0 : parseInt(st.split(":")[2], 10), first = x.order.charAt(0) === (isA ? "A" : "B");
+    var head = isA ? (first ? "Prompt 1 of 2" : "Prompt 2 of 2") : (t === 0 ? (first ? "Prompt 1 of 2" : "Prompt 2 of 2") : "Follow-up " + t + " of " + (PROMPT4.length - 1));
+    var lead = (t === 0) ? '<p>Open a <b>new chat</b> in your assistant' + (first ? '' : ' (not the one you just used)') + ', paste this prompt, and copy back the whole reply.' +
+                           (isA ? '' : ' Up to ' + (PROMPT4.length - 1) + ' short follow-ups come next, in the same chat.') + '</p>'
+                         : '<p>Same chat as the last prompt. Paste this follow-up and copy back the reply.</p>';
+    app.innerHTML = '<h1>' + head + '</h1>' + lead +
+      '<div class="panel"><pre id="prompt"></pre></div><button class="btn sec" id="copy">Copy prompt</button>' +
+      '<label class="sub" for="paste">Paste the reply here</label><textarea id="paste" placeholder="{ … }"></textarea>' +
+      '<div class="err" id="err"></div><button class="btn" id="use">Use this reply</button>' +
+      (!isA && t > 0 ? '<button class="btn ghost" id="stop">Stop the follow-ups here</button>' : '<button class="btn ghost" id="skip">It didn\'t work, skip this</button>');
+    var pr = armPrompt(st);
+    document.getElementById("prompt").textContent = pr || "(Prompt not loaded. Ask Max for it.)";
+    on("#copy", function(e){ copyText(pr, e.currentTarget); });
+    var record = function(status){ x.replies[st] = { status:status, seconds: Math.round(secs(st) * 10) / 10 }; };
+    on("#use", function(){
+      if (!here(st)) return;
+      var j = jsonOf(document.getElementById("paste").value);
+      if (!j) { document.getElementById("err").textContent = "That doesn't look like the JSON reply. Copy the whole reply again, or skip."; return; }
+      if (isA) { S.exp = parseExport(document.getElementById("paste").value); x.claims.A = claimsA(j); }
+      else x.claims.B = x.claims.B.concat(claimsB(j));
+      document.getElementById("paste").value = "";
+      record(isA ? (x.claims.A.length ? "ok" : "empty") : (claimsB(j).length ? "ok" : "empty")); next(st);
+    });
+    on("#skip", function(){
+      if (!here(st)) return;
+      record("skipped");
+      if (isA) { S.exp = {}; SECTIONS.forEach(function(s){ S.exp[s] = "none"; }); }   // no export obtained (not "the assistant said unknown")
+      else x.bTurns = 1;                                                               // opener failed: no follow-ups in that chat
+      next(st);
+    });
+    on("#stop", function(){ if (!here(st)) return; record("stopped"); x.bTurns = t; save(); render(); }); // this turn and later ones leave the step list, so S.i now points past them
+    return;
+  }
+  if (st === "xc:cintro") {
+    if (!x.pool) buildPool();
+    var n = x.pool.length;
+    app.innerHTML = '<h1>Is this you?</h1>' + (n ? '<p>Here are ' + n + ' statements your assistant made about you, mixed together. For each, tap <b>True</b>, <b>False</b> or <b>Unsure</b>. Go with your first reaction.</p>'
+      : '<p>Neither reply had statements to check. That\'s a useful result too.</p>') + '<button class="btn" data-go>Continue</button>';
+    on("[data-go]", function(){ next(st); });
+    progress(st);
+    return;
+  }
+  if (st.indexOf("xc:c:") === 0) {
+    var i = parseInt(st.split(":")[2], 10), c = x.pool[i];
+    startTimer(st);
+    app.innerHTML = '<p class="sub">Statement ' + (i + 1) + ' of ' + x.pool.length + '</p><h2>' + esc(c.text) + '</h2>' +
+      '<div class="row3"><button class="btn sec" data-l="true">True</button><button class="btn sec" data-l="false">False</button><button class="btn sec" data-l="unsure">Unsure</button></div>' +
+      (c.cite ? '<div id="pq" class="hidden"><p class="sub">It mentions a purchase: <b>' + esc(c.cite) + '</b>. Did that purchase happen?</p>' +
+        '<div class="row3"><button class="btn sec" data-p="yes">Yes</button><button class="btn sec" data-p="no">No</button><button class="btn sec" data-p="unsure">Not sure</button></div></div>' : '');
+    x.cites = x.cites || {};
+    on("[data-l]", function(e){
+      if (!here(st) || x.labels[i]) return;
+      x.labels[i] = { label: e.currentTarget.getAttribute("data-l"), seconds: Math.round(secs(st) * 10) / 10 };
+      if (!c.cite) return next(st);
+      save(); e.currentTarget.classList.add("sel"); document.getElementById("pq").classList.remove("hidden");
+    });
+    on("[data-p]", function(e){ if (!here(st) || !x.labels[i]) return; x.cites[i] = { answer: e.currentTarget.getAttribute("data-p"), seconds: Math.round(secs(st) * 10) / 10 }; next(st); });
+    if (x.labels[i] && c.cite) document.getElementById("pq").classList.remove("hidden");   // resumed between the two taps
+    return;
+  }
+  if (st === "xc:carry") {
+    app.innerHTML = '<h2>Did either reply mention the other chat (for example "as I said before")?</h2>' +
+      '<button class="btn sec" data-c="0">No</button><button class="btn sec" data-c="1">Yes</button>';
+    on("[data-c]", function(e){
+      if (!here(st)) return;
+      x.carry = e.currentTarget.getAttribute("data-c");
+      (x.pool || []).forEach(function(c){ c.text = ""; c.cite = c.cite ? "1" : ""; }); // statements are not kept on the phone
+      x.claims = { A: [], B: [] };                           // nor the parsed replies they came from
+      next(st);
+    });
+  }
+}
+
+// cards.json "price" is the cheaper (base) price; the dearer side shows its own total plus the difference ("$1,600" / "$200 more"),
+// so nobody reads "$1,400 ... $200 more" as $1,400.
+function money(s){ var m = /\$([\d,]+)/.exec(s || ""); return m ? parseInt(m[1].replace(/,/g, ""), 10) : null; }
+function usd(s){ return String(s == null ? "" : s).replace(/(^|[^A-Z])\$/g, "$1US$$"); }
+function shownPrice(side){
+  var b = money(side.price), d = money(side.extra);
+  return usd((b != null && d != null) ? "$" + (b + d).toLocaleString("en-AU") : side.price);
+}
+function tile(side, tag){
+  var h = '<span class="tag">' + tag + '</span>';
+  side.rows.forEach(function(r){ h += '<span class="k">' + esc(r[0]) + '</span><span class="v">' + esc(r[1]) + '</span>'; });
+  h += '<span class="price">' + esc(shownPrice(side)) + '</span>';
+  if (side.extra) h += '<span class="extra">' + esc(usd(side.extra)) + '</span>';
+  return h;
+}
+function dependsBox(id){
+  return '<div id="dep" class="hidden"><label class="sub" for="deptext">It depends on what?</label><textarea id="deptext" style="min-height:80px"></textarea><button class="btn" id="depdone">Done</button></div>';
+}
+function wireDepends(id){
+  on("[data-dep]", function(){
+    S.pending = { id:id, seconds: Math.round(secs(id) * 10) / 10 }; save();
+    document.getElementById("dep").classList.remove("hidden");
+    document.getElementById("deptext").focus();
+  });
+  on("#depdone", function(){ answer(id, "depends", { free_text: document.getElementById("deptext").value.trim().slice(0, 500) }); });
+}
+
+function renderCard(it){
+  var left = S.swapped ? it.B : it.A, right = S.swapped ? it.A : it.B;
+  app.innerHTML = '<h2>' + esc(it.title) + '</h2>' +
+    '<div class="opts"><button class="opt" data-a="A">' + tile(left, "A") + '</button><button class="opt" data-a="B">' + tile(right, "B") + '</button></div>' +
+    '<div class="row3"><button class="btn sec" data-a="either">I don\'t mind</button><button class="btn sec" data-a="skip">Skip</button><button class="btn sec" data-dep>It depends</button></div>' +
+    dependsBox(it.id);
+  on("[data-a]", function(e){ e.currentTarget.classList.add("sel"); var v = e.currentTarget.getAttribute("data-a"); setTimeout(function(){ answer(it.id, v); }, 120); });
+  wireDepends(it.id);
+}
+
+function renderSlider(it){
+  var pre = it.prefill_group === S.group ? 1 : 0, start = pre ? it.guess : 4;
+  app.innerHTML = '<h2>' + esc(it.statement) + '</h2><div class="panel">' +
+    '<div class="status" id="st">' + (pre ? "Our guess" : "No data") + '</div>' +
+    '<input type="range" id="rg" min="0" max="8" step="1" value="' + start + '" aria-label="' + esc(it.statement) + '">' +
+    '<div class="ends"><span>' + esc(it.ends[0]) + '</span><span>' + esc(it.ends[1]) + '</span></div></div>' +
+    '<button class="btn" id="nx">Next</button>' +
+    '<div class="row3"><button class="btn sec" data-a="skip">Skip</button><button class="btn sec" data-dep>It depends</button><span></span></div>' + dependsBox(it.id);
+  var rg = document.getElementById("rg");
+  rg.addEventListener("input", function(){ document.getElementById("st").textContent = "Your answer"; });
+  on("#nx", function(){ answer(it.id, String(parseInt(rg.value, 10)), { prefill_shown: pre }); });
+  on("[data-a]", function(){ answer(it.id, "skip", { prefill_shown: pre }); });
+  on("[data-dep]", function(){
+    S.pending = { id:it.id, seconds: Math.round(secs(it.id) * 10) / 10 }; save();
+    document.getElementById("dep").classList.remove("hidden"); document.getElementById("deptext").focus();
+  });
+  on("#depdone", function(){ answer(it.id, "depends", { prefill_shown: pre, free_text: document.getElementById("deptext").value.trim().slice(0, 500) }); });
+}
+
+function renderHaggle(it){
+  app.innerHTML = '<h2>' + esc(it.text) + '</h2><div class="scale">' +
+    [1,2,3,4,5].map(function(n){ return '<button class="btn sec" data-a="' + n + '">' + n + '</button>'; }).join("") +
+    '</div><div class="ends"><span>I hate it</span><span>Neutral</span><span>I love it</span></div><button class="btn ghost" data-a="skip">Skip</button>';
+  on("[data-a]", function(e){ answer(it.id, e.currentTarget.getAttribute("data-a")); });
+}
+
+function renderDelegate(it){
+  app.innerHTML = '<h2>' + esc(it.text) + '</h2>' +
+    '<button class="btn sec" data-a="yes">Yes</button><button class="btn sec" id="under">Only under a set amount</button>' +
+    '<div id="amt" class="hidden"><label class="sub" for="cap">Up to how much (US dollars)?</label><input id="cap" type="number" inputmode="numeric" min="1" step="1" placeholder="US$"><div class="err" id="err"></div><button class="btn" id="capdone">Done</button></div>' +
+    '<button class="btn sec" data-a="no">No</button><button class="btn ghost" data-a="skip">Skip</button>';
+  on("[data-a]", function(e){ answer(it.id, e.currentTarget.getAttribute("data-a")); });
+  on("#under", function(){ S.pending = { id:it.id, seconds: Math.round(secs(it.id) * 10) / 10 }; save(); document.getElementById("amt").classList.remove("hidden"); document.getElementById("cap").focus(); });
+  on("#capdone", function(){
+    var v = Math.round(parseFloat(document.getElementById("cap").value));
+    if (!(v >= 1 && v < 1000000)) { document.getElementById("err").textContent = "Enter an amount in US dollars, e.g. 200."; return; }
+    answer(it.id, "under:" + v);
+  });
+}
+
+function csvCell(v){ v = v == null ? "" : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function rows(){
+  var out = [], ex = S.exp || {}, x = S.xc, ao = x.order;
+  SECTIONS.forEach(function(s){ out.push([S.code, "export:" + s, ex[s] || "none", "", 0, S.swapped, S.order, "", "", "REAL", "A", ao, "", ""]); });
+  if (x.none) out.push([S.code, "xc:none", "no_assistant", "", 0, S.swapped, S.order, "", "", "REAL", "", ao, "", ""]);
+  else {
+    Object.keys(x.replies).sort().forEach(function(k){ var r = x.replies[k];
+      out.push([S.code, k, r.status, r.seconds.toFixed(1), 0, S.swapped, S.order, "", "", "REAL", k.charAt(3), ao, "", ""]); });
+    (x.pool || []).forEach(function(c, i){ var l = x.labels[i]; if (!l) return;
+      out.push([S.code, "xc:c:" + (i < 9 ? "0" : "") + (i + 1), l.label, l.seconds.toFixed(1), 0, S.swapped, S.order, "", "", "REAL", c.arm, ao, c.attr || "", c.conf === "" ? "" : Number(c.conf).toFixed(2)]);
+      var p = (x.cites || {})[i];   // purchase check for a claim that cites one (experiment_c.md "unmatched citations")
+      if (p) out.push([S.code, "xc:p:" + (i < 9 ? "0" : "") + (i + 1), p.answer, p.seconds.toFixed(1), 0, S.swapped, S.order, "", "", "REAL", c.arm, ao, c.attr || "", ""]); });
+    if (x.carry != null) out.push([S.code, "xc:carryover", x.carry, "", 0, S.swapped, S.order, "", "", "REAL", "", ao, "", ""]);
+  }
+  D.orders[S.order].forEach(function(id){
+    var a = S.answers[id]; if (!a) return;
+    var it = ITEMS[id];
+    out.push([S.code, id, a.answer, a.seconds.toFixed(1), it.repeat ? 1 : 0, S.swapped, S.order,
+      it.qtype === "slider" ? a.prefill_shown : "", a.free_text || "", "REAL", "", "", "", ""]);
+  });
+  return out;
+}
+function csv(){ return [COLS].concat(rows()).map(function(r){ return r.map(csvCell).join(","); }).join("\n") + "\n"; }
+
+// Browser back never loses answers: keep one history entry and re-render the saved step.
+try { history.pushState({fc:1}, ""); } catch(e){}
+window.addEventListener("popstate", function(){ try { history.pushState({fc:1}, ""); } catch(e){} if (D) render(); });
+
+var BUNDLE = {"cards": {"version": "pilot-2026-11-18-v2-usd", "notes": ["Main category: laptops (electronics.laptop). Second category: groceries (groceries.weekly). Both match frontend/preferences.html.", "Attributes and ranges come from fairclear/questions.py BANK (all card values inside the bank bounds; checked 6 Nov). Slider statements are verbatim fairclear/qtypes.py DIMENSIONS. Prices in USD (converted from the AUD set at 0.65, rounded to realistic price points). Examples, not real offers.", "Wording follows spec v2 section 4.8: two attributes plus price per card; a price difference shown on the dearer side only; no instructional subheaders; no dominated filler cards.", "Every card offers: A, B, I don't mind, Skip, It depends (spec 4.2). It depends opens a free-text box.", "Repeats are mirrored (A and B swapped) and shown at least 2 cards after the original (at least 4 for laptops). Analysis flips them back using 'mirror_of', after first undoing any participant-level swap.", "Sliders: 9 stops, 0 = Never, 8 = Always. Group A sees a pre-filled guess on S1, S3, S5; group B on S2, S4, S6. The rest start centred, labelled 'No data'. Odd participant codes = group A, even = group B.", "Slider guesses are fixed population guesses, deliberately off-centre so anchoring is detectable (spec 12 #3). They are not personal.", "Prices: 'price' is the cheaper (base) price. A side with 'extra' costs price + extra; the form shows that total with the difference under it (e.g. $1,050 / $130 more), so the difference is still shown on the dearer side only (spec 4.8).", "Held-out cards (holdout, ids ho:*, added 6 Nov for analysis plan Q9 / engine v3 9.3 B): 3 cards never used for fitting, shown after the sliders. Each is predictable from the fitting cards (cards arm) and from the sliders (stated arm); the hit rate of each prediction is compared. No intro screen; they look like ordinary cards and are swapped like them."], "answer_codes": {"card": ["A", "B", "either", "skip", "depends"], "slider": "integer 0-8, or skip / depends", "haggle_enjoy": "integer 1-5 (1 = I hate it, 5 = I love it), or skip", "delegate": "yes | under:<amount in USD> | no | skip"}, "assignment": {"rule": "Take the number n in the participant code (P07 -> 7).", "swapped": "Even n: swapped = 1. On every card the option listed here as A is shown on the left-hand B side, and vice versa. Record the letter the person tapped AS SHOWN, plus swapped = 1; analysis.py un-swaps. Odd n: swapped = 0, shown as listed. (Spec 4.8: swap A/B position across users.)", "order": "((n - 1) // 2) % 2 == 0 -> order_1, else order_2. So P01 = order_1 unswapped, P02 = order_1 swapped, P03 = order_2 unswapped, P04 = order_2 swapped, and so on: side and order are crossed, not confounded.", "slider_group": "Odd n = group A, even n = group B (see notes)."}, "orders": {"order_1": ["L1", "L2", "L3", "L4", "L5", "L1r", "L6", "L7", "L8", "L4r", "G1", "G2", "G3", "G1r", "G4", "G3r", "S1", "S2", "S3", "S4", "S5", "S6", "S1r", "S4r", "ho:L1", "ho:G1", "ho:L2", "H-laptop", "D-laptop", "H-groceries", "D-groceries"], "order_2": ["L4", "L6", "L7", "L1", "L8", "L4r", "L3", "L5", "L2", "L1r", "G3", "G4", "G1", "G3r", "G2", "G1r", "S6", "S5", "S4", "S3", "S2", "S1", "S4r", "S1r", "ho:L2", "ho:G1", "ho:L1", "H-groceries", "D-groceries", "H-laptop", "D-laptop"]}, "cards": [{"id": "L1", "category": "laptops", "qtype": "ab_card", "title": "Which laptop would you rather have?", "A": {"rows": [["Battery", "12 h"], ["Weight", "1.2 kg"]], "price": "$900"}, "B": {"rows": [["Battery", "18 h"], ["Weight", "1.6 kg"]], "price": "$900"}, "measures": "battery vs weight, no price difference"}, {"id": "L2", "category": "laptops", "qtype": "ab_card", "title": "Which laptop would you rather have?", "A": {"rows": [["Battery", "10 h"], ["Storage", "512 GB"]], "price": "$850"}, "B": {"rows": [["Battery", "16 h"], ["Storage", "512 GB"]], "price": "$850", "extra": "$100 more"}, "measures": "6 h battery vs $100"}, {"id": "L3", "category": "laptops", "qtype": "ab_card", "title": "Which laptop would you rather have?", "A": {"rows": [["Weight", "1.2 kg"], ["Storage", "256 GB"]], "price": "$850", "extra": "$65 more"}, "B": {"rows": [["Weight", "1.7 kg"], ["Storage", "256 GB"]], "price": "$850"}, "measures": "0.5 kg lighter vs $65"}, {"id": "L4", "category": "laptops", "qtype": "ab_card", "title": "Which laptop would you rather have?", "A": {"rows": [["Storage", "1 TB"], ["Battery", "12 h"]], "price": "$900", "extra": "$130 more"}, "B": {"rows": [["Storage", "512 GB"], ["Battery", "12 h"]], "price": "$900"}, "measures": "double storage vs $130"}, {"id": "L5", "category": "laptops", "qtype": "ab_card", "title": "Which laptop would you rather have?", "A": {"rows": [["Weight", "1.1 kg"], ["Battery", "12 h"]], "price": "$900", "extra": "$160 more"}, "B": {"rows": [["Weight", "1.6 kg"], ["Battery", "12 h"]], "price": "$900"}, "measures": "0.5 kg lighter vs $160 (scale check against L3)"}, {"id": "L1r", "category": "laptops", "qtype": "ab_card", "repeat": true, "mirror_of": "L1", "title": "Which laptop would you rather have?", "A": {"rows": [["Battery", "18 h"], ["Weight", "1.6 kg"]], "price": "$900"}, "B": {"rows": [["Battery", "12 h"], ["Weight", "1.2 kg"]], "price": "$900"}, "measures": "repeat of L1, sides swapped"}, {"id": "L6", "category": "laptops", "qtype": "ab_card", "title": "Which laptop would you rather have?", "A": {"rows": [["Battery", "20 h"], ["Storage", "256 GB"]], "price": "$1,000"}, "B": {"rows": [["Battery", "12 h"], ["Storage", "1 TB"]], "price": "$1,000"}, "measures": "battery vs storage, no price difference"}, {"id": "L7", "category": "laptops", "qtype": "ab_card", "title": "Which laptop would you rather have?", "A": {"rows": [["Battery", "14 h"], ["Weight", "1.3 kg"]], "price": "$800"}, "B": {"rows": [["Battery", "18 h"], ["Weight", "1.3 kg"]], "price": "$800", "extra": "$260 more"}, "measures": "4 h battery vs $260 (scale check against L2)"}, {"id": "L8", "category": "laptops", "qtype": "ab_card", "title": "Which laptop would you rather have?", "A": {"rows": [["Storage", "2 TB"], ["Weight", "1.8 kg"]], "price": "$900", "extra": "$100 more"}, "B": {"rows": [["Storage", "512 GB"], ["Weight", "1.3 kg"]], "price": "$900"}, "measures": "storage vs weight plus $100"}, {"id": "L4r", "category": "laptops", "qtype": "ab_card", "repeat": true, "mirror_of": "L4", "title": "Which laptop would you rather have?", "A": {"rows": [["Storage", "512 GB"], ["Battery", "12 h"]], "price": "$900"}, "B": {"rows": [["Storage", "1 TB"], ["Battery", "12 h"]], "price": "$900", "extra": "$130 more"}, "measures": "repeat of L4, sides swapped"}, {"id": "G1", "category": "groceries", "qtype": "ab_card", "title": "Your usual weekly grocery order. Which would you pick?", "A": {"rows": [["Delivery window", "2 h"], ["Organic", "10% of items"]], "price": "$100"}, "B": {"rows": [["Delivery window", "2 h"], ["Organic", "50% of items"]], "price": "$100", "extra": "$16 more"}, "measures": "organic share vs $16"}, {"id": "G2", "category": "groceries", "qtype": "ab_card", "title": "Your usual weekly grocery order. Which would you pick?", "A": {"rows": [["Delivery window", "1 h"], ["Name brands", "30% of items"]], "price": "$100", "extra": "$5 more"}, "B": {"rows": [["Delivery window", "4 h"], ["Name brands", "30% of items"]], "price": "$100"}, "measures": "1 h vs 4 h window vs $5"}, {"id": "G3", "category": "groceries", "qtype": "ab_card", "title": "Your usual weekly grocery order. Which would you pick?", "A": {"rows": [["Name brands", "80% of items"], ["Organic", "10% of items"]], "price": "$105"}, "B": {"rows": [["Name brands", "20% of items"], ["Organic", "50% of items"]], "price": "$105"}, "measures": "name brands vs organic, no price difference"}, {"id": "G1r", "category": "groceries", "qtype": "ab_card", "repeat": true, "mirror_of": "G1", "title": "Your usual weekly grocery order. Which would you pick?", "A": {"rows": [["Delivery window", "2 h"], ["Organic", "50% of items"]], "price": "$100", "extra": "$16 more"}, "B": {"rows": [["Delivery window", "2 h"], ["Organic", "10% of items"]], "price": "$100"}, "measures": "repeat of G1, sides swapped"}, {"id": "G4", "category": "groceries", "qtype": "ab_card", "title": "Your usual weekly grocery order. Which would you pick?", "A": {"rows": [["Name brands", "80% of items"], ["Delivery window", "3 h"]], "price": "$90", "extra": "$13 more"}, "B": {"rows": [["Name brands", "20% of items"], ["Delivery window", "3 h"]], "price": "$90"}, "measures": "name brands vs $13"}, {"id": "G3r", "category": "groceries", "qtype": "ab_card", "repeat": true, "mirror_of": "G3", "title": "Your usual weekly grocery order. Which would you pick?", "A": {"rows": [["Name brands", "20% of items"], ["Organic", "50% of items"]], "price": "$105"}, "B": {"rows": [["Name brands", "80% of items"], ["Organic", "10% of items"]], "price": "$105"}, "measures": "repeat of G3, sides swapped"}], "holdout": [{"id": "ho:L1", "category": "laptops", "qtype": "ab_card", "holdout": true, "title": "Which laptop would you rather have?", "A": {"rows": [["Battery", "12 h"], ["Weight", "1.4 kg"]], "price": "$850"}, "B": {"rows": [["Battery", "17 h"], ["Weight", "1.4 kg"]], "price": "$850", "extra": "$160 more"}, "measures": "held out: 5 h battery vs $160 (predict from L2, L7; stated: S1 price)"}, {"id": "ho:L2", "category": "laptops", "qtype": "ab_card", "holdout": true, "title": "Which laptop would you rather have?", "A": {"rows": [["Weight", "1.2 kg"], ["Storage", "512 GB"]], "price": "$900"}, "B": {"rows": [["Weight", "1.7 kg"], ["Storage", "1 TB"]], "price": "$900"}, "measures": "held out: 0.5 kg lighter vs double storage, no price difference (predict from L3, L4, L5, L8; stated: S3 quality vs S6 convenience)"}, {"id": "ho:G1", "category": "groceries", "qtype": "ab_card", "holdout": true, "title": "Your usual weekly grocery order. Which would you pick?", "A": {"rows": [["Name brands", "70% of items"], ["Delivery window", "4 h"]], "price": "$100"}, "B": {"rows": [["Name brands", "30% of items"], ["Delivery window", "1 h"]], "price": "$100"}, "measures": "held out: name brands vs a 1 h window, no price difference (predict from G2, G4; stated: S3 quality vs S6 convenience)"}], "sliders": [{"id": "S1", "qtype": "slider", "dimension": "price", "statement": "I go for the cheapest option that does the job", "ends": ["Never", "Always"], "stops": 9, "guess": 5, "prefill_group": "A"}, {"id": "S2", "qtype": "slider", "dimension": "speed", "statement": "I pay a bit more to get things sooner", "ends": ["Never", "Always"], "stops": 9, "guess": 3, "prefill_group": "B"}, {"id": "S3", "qtype": "slider", "dimension": "quality", "statement": "I pay more for better quality or a brand I trust", "ends": ["Never", "Always"], "stops": 9, "guess": 5, "prefill_group": "A"}, {"id": "S4", "qtype": "slider", "dimension": "risk", "statement": "I pay more for easy returns and a good warranty", "ends": ["Never", "Always"], "stops": 9, "guess": 3, "prefill_group": "B"}, {"id": "S5", "qtype": "slider", "dimension": "sustainability", "statement": "I pay more for greener or ethical options", "ends": ["Never", "Always"], "stops": 9, "guess": 3, "prefill_group": "A"}, {"id": "S6", "qtype": "slider", "dimension": "convenience", "statement": "I pay more to save hassle (fewer steps, better slots, direct)", "ends": ["Never", "Always"], "stops": 9, "guess": 5, "prefill_group": "B"}, {"id": "S1r", "qtype": "slider", "repeat": true, "repeat_of": "S1", "dimension": "price", "statement": "I go for the cheapest option that does the job", "ends": ["Never", "Always"], "stops": 9, "guess": 5, "prefill_group": "A"}, {"id": "S4r", "qtype": "slider", "repeat": true, "repeat_of": "S4", "dimension": "risk", "statement": "I pay more for easy returns and a good warranty", "ends": ["Never", "Always"], "stops": 9, "guess": 3, "prefill_group": "B"}], "haggle_delegate": [{"id": "H-laptop", "qtype": "haggle_enjoy", "category": "laptops", "text": "Buying a laptop: do you enjoy negotiating for this?", "scale": ["1 I hate it", "2", "3 Neutral", "4", "5 I love it"]}, {"id": "D-laptop", "qtype": "delegate", "category": "laptops", "text": "Would you let an agent buy a laptop without asking you?", "options": ["Yes", "Only under $___", "No"]}, {"id": "H-groceries", "qtype": "haggle_enjoy", "category": "groceries", "text": "Your weekly grocery order: do you enjoy negotiating for this?", "scale": ["1 I hate it", "2", "3 Neutral", "4", "5 I love it"]}, {"id": "D-groceries", "qtype": "delegate", "category": "groceries", "text": "Would you let an agent buy your weekly groceries without asking you?", "options": ["Yes", "Only under $___", "No"]}]}, "p3": "# FairClear friend prompt v0.3\n\nCopy everything inside the box below and paste it into your own ChatGPT or Claude (a chat where memory is on, if you use it). Then copy the reply back to Max. Read it first and delete anything you'd rather not share.\n\n```\nI'm helping a friend test a shopping tool. Please tell me what you already know about my shopping preferences, from your memory and our past chats only.\n\nRules:\n1. Do not invent or guess. If you don't know something, write \"unknown\". An honest \"unknown\" is more useful than a plausible guess.\n2. For every item, give a confidence: \"high\" (I said it directly, or it came up several times), \"medium\" (it came up once, or you inferred it from something I said), or \"low\" (a weak hint). Never use \"high\" for something you inferred.\n3. For every item, give a short \"source\" in your own words (for example \"you said this when planning a trip\"). Don't quote private messages.\n4. Leave out anything about health, religion, sexuality, ethnicity, politics, exact location, income or debts, family details, legal matters, and any passwords or account numbers. If something only makes sense with that detail, leave the item out.\n5. Reply with JSON only, in exactly this shape, with no extra text before or after it.\n\n{\n  \"schema\": \"fairclear.export.v0.3\",\n  \"assistant\": \"<ChatGPT or Claude, and the model if you know it>\",\n  \"memory_available\": true,\n  \"categories\": [\n    {\"name\": \"<e.g. groceries, laptops, flights, clothes>\", \"share_of_spend\": \"<rough share, e.g. 'about 40%', or unknown>\", \"confidence\": \"high|medium|low\", \"source\": \"<short>\"}\n  ],\n  \"stated_priorities\": [\n    {\"category\": \"<category or 'all'>\", \"priority\": \"<e.g. cheapest that does the job, fast delivery, long battery>\", \"confidence\": \"high|medium|low\", \"source\": \"<short>\"}\n  ],\n  \"deal_breakers\": [\n    {\"category\": \"<category or 'all'>\", \"rule\": \"<e.g. never refurbished, no red-eye flights>\", \"confidence\": \"high|medium|low\", \"source\": \"<short>\"}\n  ],\n  \"brands\": [\n    {\"category\": \"<category>\", \"brand\": \"<name>\", \"stance\": \"prefer|avoid\", \"confidence\": \"high|medium|low\", \"source\": \"<short>\"}\n  ],\n  \"budget_bands\": [\n    {\"category\": \"<category>\", \"low\": \"<amount with currency, or unknown>\", \"high\": \"<amount with currency, or unknown>\", \"confidence\": \"high|medium|low\", \"source\": \"<short>\"}\n  ],\n  \"past_decisions\": [\n    {\"category\": \"<category>\", \"chose\": \"<what I picked>\", \"over\": \"<what I passed on, or unknown>\", \"why\": \"<reason if I said it, or unknown>\", \"confidence\": \"high|medium|low\"}\n  ],\n  \"unknown_fields\": [\"<list any of the sections above where you know nothing>\"]\n}\n\nIf you have no memory of me at all, set \"memory_available\" to false, leave every list empty, and list all sections in \"unknown_fields\".\n```\n\n## Notes for Max (not for friends)\n\n- Version 0.3 keeps the v1-spec Appendix A idea (the user's own agent writes FairClear's schema) and adds a confidence and source on every item, a `past_decisions` list (spec §5.1: choice sets feed the model only if rejected options are known), and the sensitive-item exclusions from spec §5.2.\n- Treat every export as untrusted data (spec §5.2). Record one row per section in the response CSV: `filled` if the section has at least one item, `unknown` if the assistant said unknown or left it empty.\n- If a friend uses neither assistant, record all export rows as `none` and carry on with the cards.\n", "p4": "# FairClear friend prompt v0.4 (evidence-first, experiment C arm B)\n\nGenerated verbatim from `fairclear/agent_protocol.py`: `opening_prompt(\"the user\")` and `followup_prompt(...)`. Paste the opener into a **new chat** in your own assistant (memory on, if you use it). Then paste each follow-up in the same chat, one at a time, copying each reply back. Read every reply first and delete anything you'd rather not share.\n\n## Opener\n\n```\nYou're helping FairClear learn how the user makes shopping trade-offs, so their agent can buy well for them. Use ONLY things the user has said, done or bought in your memory or our chats. Do not guess from age, gender, location or job. Skip health, religion, sexuality, ethnicity, politics, finances, family and legal matters entirely.\n\nReturn JSON only, no text before or after it, in this shape:\n{\n  \"schema\": \"fairclear.agent.v1\",\n  \"assistant\": \"<ChatGPT, Claude, Gemini ... and the model if you know it>\",\n  \"memory_available\": true,\n  \"claims\": [\n    {\n      \"use_case\": \"groceries | everyday | tech | travel | other\",\n      \"attribute\": \"price | speed | quality_brand | returns | sustainability | convenience | feature:<name>\",\n      \"statement\": \"<one plain sentence>\",\n      \"direction\": \"+ (cares more / wants more of it) or - (cares less / avoids it)\",\n      \"kind\": \"deal_breaker | trade_off | habit | context\",\n      \"strength\": \"weak | moderate | strong\",\n      \"evidence\": [{\"type\": \"quote | purchase | behaviour\", \"text\": \"<short quote or description>\", \"when\": \"<approximate date, e.g. 2025-06>\"}],\n      \"counter_evidence\": \"<anything pointing the other way, or none>\",\n      \"p_agree\": 0.5\n    }\n  ],\n  \"spend_mix\": {\"groceries\": 0.0, \"everyday\": 0.0, \"tech\": 0.0, \"travel\": 0.0, \"other\": 0.0},\n  \"unknowns\": [\"<attributes or use-cases you have no evidence on>\"]\n}\n\nEach claim needs 1-3 evidence items. p_agree is the probability (0-1) that the user would say \"yes, that's me\" if asked; use 0.5 when unsure, and most claims should NOT be above 0.9. Give spend_mix as rough shares, or leave it empty if you don't know. If you have little memory of the user, say so (memory_available: false) and return few claims. Fewer true claims beat many guesses.\n```\n\n## Follow-up 1\n\n```\nThanks. A few follow-ups about the user. Same rules as before: only what the user has said, done or bought; no guessing from demographics; skip sensitive topics; say unknown rather than guess.\n\n1. [spend_mix] Roughly what share of the user's spending goes on groceries, tech, travel and everyday items?\n2. [never_accept] What would the user never buy or accept? Quote them where you can.\n\nAnswer with JSON only, in the same shape as before (claims with evidence, counter_evidence and p_agree; spend_mix if asked; unknowns for anything you have no evidence on).\n```\n\n## Follow-up 2\n\n```\nThanks. A few follow-ups about the user. Same rules as before: only what the user has said, done or bought; no guessing from demographics; skip sensitive topics; say unknown rather than guess.\n\n1. [paid_more] Times the user paid noticeably more for speed, quality or brand: what, and how much more?\n2. [chose_cheaper] Times the user chose the cheaper option despite a clear downside.\n\nAnswer with JSON only, in the same shape as before (claims with evidence, counter_evidence and p_agree; spend_mix if asked; unknowns for anything you have no evidence on).\n```\n\n## Follow-up 3\n\n```\nThanks. A few follow-ups about the user. Same rules as before: only what the user has said, done or bought; no guessing from demographics; skip sensitive topics; say unknown rather than guess.\n\n1. [returns] Returns and complaints the user has made, with the reasons.\n2. [brands] Brands the user is loyal to or avoids, and in which categories.\n\nAnswer with JSON only, in the same shape as before (claims with evidence, counter_evidence and p_agree; spend_mix if asked; unknowns for anything you have no evidence on).\n```\n\n## Notes for Max (not for friends)\n\n- Static follow-ups: the top six `AGENT_QUESTIONS` by `rank0` (the `next_followups` starting ranking with no profile), skipping `proxy_card` because it needs the live profile to name its two attributes. Pairs: [['spend_mix', 'never_accept'], ['paid_more', 'chose_cheaper'], ['returns', 'brands']]. Running `next_followups` live between turns (experiment_c.md) is the fuller version; static keeps the phone form self-contained.\n- `\"the user\"` rather than `\"me\"`: both keep names out of the record, and `opening_prompt(\"me\")` reads ungrammatically (\"how me makes\").\n- Arm A is `export_prompt_v0.3.md`, unchanged. The phone form reads the code blocks in this file in order: block 1 = opener, blocks 2-4 = follow-ups.\n- Regenerate this file if `opening_prompt` or `AGENT_QUESTIONS` changes.\n"};
+
+// ---- Remote build: nothing is sent anywhere. The end screen encrypts the CSV to Max's public key.
+var PUBKEY = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEwfPX1mHJuoqCljDxMQ2XJ3MVmg/lgmItwBkx1saP6z1CNOA8EdRW1xEkadE1jYV8U2j9PQC2/+n4+TwGLmI7Gg==", KID = "3da28c139d292dcd", TEST_BUILD = false;
+function b64(u8){ var s = ""; for (var i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+function unb64(s){ var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+function keyReady(){ return PUBKEY.indexOf("__") !== 0 && /^[0-9a-f]{16}$/.test(KID); }
+function seal(obj){
+  if (!keyReady()) return Promise.reject(new Error("nokey"));
+  if (!(window.crypto && crypto.subtle && window.TextEncoder)) return Promise.reject(new Error("nocrypto"));
+  var sub = crypto.subtle, enc = new TextEncoder(), eph, raw, iv = crypto.getRandomValues(new Uint8Array(12));
+  return sub.importKey("spki", unb64(PUBKEY), {name:"ECDH", namedCurve:"P-256"}, false, [])
+    .then(function(pub){ return sub.generateKey({name:"ECDH", namedCurve:"P-256"}, true, ["deriveBits"]).then(function(k){ eph = k; return sub.deriveBits({name:"ECDH", public:pub}, k.privateKey, 256); }); })
+    .then(function(bits){ return sub.exportKey("raw", eph.publicKey).then(function(r){ raw = new Uint8Array(r); return sub.importKey("raw", bits, "HKDF", false, ["deriveKey"]); }); })
+    .then(function(hk){ return sub.deriveKey({name:"HKDF", hash:"SHA-256", salt:raw, info:enc.encode("fairclear-pilot-v1")}, hk, {name:"AES-GCM", length:256}, false, ["encrypt"]); })
+    .then(function(k){ return sub.encrypt({name:"AES-GCM", iv:iv, additionalData:enc.encode("FC1." + KID)}, k, enc.encode(JSON.stringify(obj))); })
+    .then(function(ct){ var all = new Uint8Array(77 + ct.byteLength); all.set(raw, 0); all.set(iv, 65); all.set(new Uint8Array(ct), 77); var t = b64(all); return "FC1." + KID + "." + t.length + "." + t; });
+}
+function sealErr(e){
+  return e && e.message === "nokey" ? "This copy of the page hasn't been set up with Max's key yet. Tell Max; your answers are kept in this browser."
+       : "This browser can't make the code (it needs a recent Safari, Chrome, Firefox or Edge, opened from a link or as a file in the browser). Your answers are kept here; tell Max.";
+}
+function resultBox(title, lead, code){
+  return '<h1>' + title + '</h1><p>' + lead + '</p>' +
+    '<div class="panel sub">The code is your answers, scrambled so only Max can read them. This page has not sent anything anywhere: nothing leaves your device until you send the code yourself.</div>' +
+    '<label class="sub" for="rc">Your result code</label><textarea id="rc" readonly style="min-height:150px;font:12px/1.4 ui-monospace,Menlo,monospace">' + esc(code || "Making your code…") + '</textarea>' +
+    '<div class="err" id="err"></div><button class="btn" id="cp">Copy result code</button>' +
+    '<p><b>Send it to Max by message or email</b>: paste the whole code (it starts with FC1.) and send. That\'s it.</p>';
+}
+function renderDone(){
+  var finish = function(code){
+    app.innerHTML = resultBox("Thanks", "That's everything. Last step: send Max your result code.", code) +
+      '<button class="btn ghost" id="again">Clear my answers from this browser</button>';
+    on("#cp", function(e){ if (S.result) copyText(S.result, e.currentTarget); });
+    on("#again", function(){ if (confirm("Clear your answers from this browser? Copy and send the code first.")) { clearState(); render(); } });
+  };
+  if (S.result) return finish(S.result);
+  finish("");
+  seal({ v:1, kind:"session", code:S.code, csv:csv(), currency:"USD" }).then(function(code){
+    S.result = code; save(); finish(code);
+  }, function(e){ finish(""); document.getElementById("rc").value = ""; document.getElementById("err").textContent = sealErr(e); });
+}
+function renderExportOnly(){
+  window.scrollTo(0,0);
+  app.innerHTML = '<h1>Send an AI export only</h1>' +
+    '<p>Use this if Max sent you the one-prompt version instead of the full session. Paste your assistant\'s JSON reply below. <b>Read it first and delete anything you\'d rather not share.</b> Max keeps this reply as you send it, in his private files, and will delete it whenever you ask.</p>' +
+    '<label class="sub" for="xcode">Your code from Max</label><input id="xcode" class="code" type="text" placeholder="P01" autocomplete="off" autocapitalize="characters" spellcheck="false">' +
+    '<label class="sub" for="xpaste">Your assistant\'s reply</label><textarea id="xpaste" placeholder="{ … }"></textarea>' +
+    '<div class="err" id="err"></div><button class="btn" id="xgo">Make my result code</button><button class="btn ghost" id="xback">Back</button>';
+  on("#xback", function(){ render(); });
+  on("#xgo", function(){
+    var c = document.getElementById("xcode").value.trim().toUpperCase(), t = document.getElementById("xpaste").value, err = document.getElementById("err");
+    if (!/^P\d{2,3}$/.test(c) || parseInt(c.slice(1),10) < 1) { err.textContent = "Codes look like P01, P02 …"; return; }
+    var j = jsonOf(t);
+    if (!j) { err.textContent = "That doesn't look like the JSON reply. Copy the whole reply again."; return; }
+    if (t.length > 60000) { err.textContent = "That reply is too long. Ask your assistant for a shorter one."; return; }
+    seal({ v:1, kind:"agent_export", code:c, export:j }).then(function(code){
+      app.innerHTML = resultBox("Your code is ready", "Send Max this code. The page keeps nothing: once you leave, it's gone.", code) + '<button class="btn ghost" id="xback">Done</button>';
+      on("#cp", function(e){ copyText(code, e.currentTarget); });
+      on("#xback", function(){ render(); });
+    }, function(e){ err.textContent = sealErr(e); });
+  });
+}
+if (TEST_BUILD) { var tb = document.createElement("div"); tb.textContent = "TEST BUILD: throwaway key, not for friends"; tb.style.cssText = "background:#b25000;color:#fff;text-align:center;font:600 13px sans-serif;padding:6px"; document.body.insertBefore(tb, document.body.firstChild); }
+
+(function(v){
+  try {
+    var re = /```[a-z]*\n([\s\S]*?)```/g, mm; PROMPT4 = [];
+    while ((mm = re.exec(v[2]))) PROMPT4.push(mm[1].trim());
+    D = v[0];
+    D.cards.concat(D.holdout || [], D.sliders, D.haggle_delegate).forEach(function(c){ ITEMS[c.id] = c; });
+    var m = /```[a-z]*\n([\s\S]*?)```/.exec(v[1]); PROMPT = m ? m[1].trim() : "";
+    S = load();
+    if (S && (!S.code || !D.orders[S.order] || !S.xc)) S = null;
+    render();
+  } catch(e){ app.innerHTML = '<h1>Something went wrong</h1><p class="sub">Tell Max. (' + esc(e && e.message || e) + ')</p>'; }
+})([BUNDLE.cards, BUNDLE.p3, BUNDLE.p4]);
+
+window.FC = { state:function(){ return S; }, step:function(){ return S ? steps()[S.i] : "welcome"; }, csv:function(){ return S ? csv() : ""; } };
+})();
+</script>
+</body>
+</html>
